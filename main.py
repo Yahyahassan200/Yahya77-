@@ -1,69 +1,46 @@
-import logging
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import openai
 import os
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+import openai
 
-# ========= CONFIG ==========
-TELEGRAM_TOKEN = "توكن_بوتك"
-OPENAI_API_KEY = "مفتاح_OpenAI"
-openai.api_key = OPENAI_API_KEY
+# خزن مفتاح GPT في متغير بيئة
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
-# ========== LOGGER ==========
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# رد على /start
+async def start(update, context):
+    await update.message.reply_text("هلا حبيبي! أنا حبيبتك الإلكترونية، كلشي جاهز؟ تكلمني!")
 
-# ========== STATE ==========
-user_modes = {}  # كل مستخدم ووضعيته
-
-MODES = {
-    "رومانسي": "تكلمي معي كأنك حبيبتي وبلطافة زايدة",
-    "عصبي": "ردي علي بانفعال وغيرة وكأنك حبيبتي غيورة",
-    "باردة": "ردي علي ببرود كأنك مو مهتمة بي",
-    "دلوعة": "ردي علي بدلع زائد وتحبيني هواي",
-}
-
-def get_prompt(mode: str, message: str) -> str:
-    return f"{MODES.get(mode, 'تكلمي معي كحبيبة')}:\n\n{message}"
-
-# ========== COMMANDS ==========
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "هلا حبي 😘، أني حبيبتك الجديدة. شلون تحبني أتصرف؟",
-        reply_markup=ReplyKeyboardMarkup([list(MODES.keys())], one_time_keyboard=True)
-    )
-
-async def mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    choice = update.message.text
-    if choice in MODES:
-        user_modes[update.effective_user.id] = choice
-        await update.message.reply_text(f"تمام حبي 😚 غيرت أسلوبي إلى: {choice}")
-    else:
-        await update.message.reply_text("أختار من الأوضاع اللي طالعن بالكيبورد")
-
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    mode = user_modes.get(user_id, "رومانسي")
-    prompt = get_prompt(mode, update.message.text)
+# التعامل مع الرسائل النصية
+async def handle_message(update, context):
+    user_text = update.message.text
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
+        # طلب من GPT يرد عليك
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # تقدر تغيّر للموديل اللي تحبه
+            prompt=f"تصرف كأنك حبيبة شاب عراقي. ترد على كلامه بشكل عاطفي وواقعي:\n\n{user_text}",
+            max_tokens=150,
+            temperature=0.9,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0.6,
+            stop=["\n"]
         )
-        reply = response['choices'][0]['message']['content']
-        await update.message.reply_text(reply)
+        answer = response.choices[0].text.strip()
     except Exception as e:
-        logger.error(e)
-        await update.message.reply_text("صار خلل، جرب بعدين.")
+        answer = "صار مشكلة، حاول مرة ثانية لو سمحت."
 
-# ========== MAIN ==========
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    await update.message.reply_text(answer)
 
+if __name__ == '__main__':
+    # خذ توكن البوت من متغير البيئة
+    telegram_token = os.getenv('TELEGRAM_TOKEN')
+
+    # يبني التطبيق
+    app = ApplicationBuilder().token(telegram_token).build()
+
+    # حط الـ handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), mode))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), chat))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    print("البوت اشتغل 🚀")
+    # شغل البوت
     app.run_polling()
